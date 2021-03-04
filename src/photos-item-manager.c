@@ -309,7 +309,7 @@ photos_item_manager_add_cursor_for_mode (PhotosItemManager *self,
   g_return_if_fail (base_item_type == G_TYPE_NONE
                     || (base_item_type != PHOTOS_TYPE_BASE_ITEM
                         && g_type_is_a (base_item_type, PHOTOS_TYPE_BASE_ITEM)));
-  g_return_if_fail (TRACKER_SPARQL_IS_CURSOR (cursor));
+  g_return_if_fail (TRACKER_IS_SPARQL_CURSOR (cursor));
   g_return_if_fail (mode != PHOTOS_WINDOW_MODE_NONE);
   g_return_if_fail (mode != PHOTOS_WINDOW_MODE_EDIT);
   g_return_if_fail (mode != PHOTOS_WINDOW_MODE_PREVIEW);
@@ -532,17 +532,11 @@ photos_item_manager_notifier_events_foreach (gpointer data, gpointer user_data)
   PhotosItemManager *self = PHOTOS_ITEM_MANAGER (user_data);
   TrackerNotifierEvent *event = (TrackerNotifierEvent *) data;
   TrackerNotifierEventType event_type;
-  const gchar *event_rdf_type;
   const gchar *event_urn;
 
-  event_rdf_type = tracker_notifier_event_get_type (event);
   event_type = tracker_notifier_event_get_event_type (event);
   event_urn = tracker_notifier_event_get_urn (event);
-  photos_debug (PHOTOS_DEBUG_TRACKER,
-                "Received TrackerNotifierEvent (%d): RDF type %s, URN %s",
-                event_type,
-                event_rdf_type,
-                event_urn);
+  photos_debug (PHOTOS_DEBUG_TRACKER, "Received TrackerNotifierEvent (%d): URN %s", event_type, event_urn);
 
   g_return_if_fail (event_urn != NULL && event_urn[0] != '\0');
 
@@ -584,9 +578,13 @@ photos_item_manager_notifier_events_foreach (gpointer data, gpointer user_data)
 
 
 static void
-photos_item_manager_notifier_events (PhotosItemManager *self, GPtrArray *events)
+photos_item_manager_notifier_events (PhotosItemManager *self,
+                                     const gchar *service,
+                                     const gchar *graph,
+                                     GPtrArray *events)
 {
-  g_ptr_array_foreach (events, photos_item_manager_notifier_events_foreach, self);
+  if (g_strcmp0 (graph, PHOTOS_PICTURES_GRAPH) == 0)
+    g_ptr_array_foreach (events, photos_item_manager_notifier_events_foreach, self);
 }
 
 
@@ -724,7 +722,7 @@ photos_item_manager_wait_for_changes_timeout (gpointer user_data)
       g_autoptr (PhotosQuery) query = NULL;
       g_autofree gchar *sparql = NULL;
 
-      sparql = g_strdup_printf ("SELECT ?urn nie:url (?urn) WHERE { ?urn nie:url '%s' }", uri);
+      sparql = g_strdup_printf ("SELECT ?urn nie:isStoredAs (?urn) WHERE { ?urn nie:isStoredAs '%s' }", uri);
       query = photos_query_new (NULL, sparql);
       photos_tracker_queue_select (self->queue,
                                    query,
@@ -1100,17 +1098,6 @@ photos_item_manager_init (PhotosItemManager *self)
 
   self->mode = PHOTOS_WINDOW_MODE_NONE;
 
-  self->notifier = tracker_notifier_new (NULL,
-                                         TRACKER_NOTIFIER_FLAG_NOTIFY_UNEXTRACTED
-                                         | TRACKER_NOTIFIER_FLAG_QUERY_URN,
-                                         NULL,
-                                         NULL);
-  if (G_LIKELY (self->notifier != NULL))
-    g_signal_connect_swapped (self->notifier,
-                              "events",
-                              G_CALLBACK (photos_item_manager_notifier_events),
-                              self);
-
   {
     g_autoptr (GError) error = NULL;
 
@@ -1251,7 +1238,7 @@ photos_item_manager_add_item (PhotosItemManager *self,
   g_return_if_fail (base_item_type == G_TYPE_NONE
                     || (base_item_type != PHOTOS_TYPE_BASE_ITEM
                         && g_type_is_a (base_item_type, PHOTOS_TYPE_BASE_ITEM)));
-  g_return_if_fail (TRACKER_SPARQL_IS_CURSOR (cursor));
+  g_return_if_fail (TRACKER_IS_SPARQL_CURSOR (cursor));
 
   id = tracker_sparql_cursor_get_string (cursor, PHOTOS_QUERY_COLUMNS_URN, NULL);
   g_return_if_fail (id != NULL && id[0] != '\0');
@@ -1380,7 +1367,7 @@ photos_item_manager_create_item (PhotosItemManager *self,
   g_return_val_if_fail (base_item_type == G_TYPE_NONE
                         || (base_item_type != PHOTOS_TYPE_BASE_ITEM
                             && g_type_is_a (base_item_type, PHOTOS_TYPE_BASE_ITEM)), NULL);
-  g_return_val_if_fail (TRACKER_SPARQL_IS_CURSOR (cursor), NULL);
+  g_return_val_if_fail (TRACKER_IS_SPARQL_CURSOR (cursor), NULL);
 
   id = tracker_sparql_cursor_get_string (cursor, PHOTOS_QUERY_COLUMNS_URN, NULL);
   item = PHOTOS_BASE_ITEM (photos_base_manager_get_object_by_id (PHOTOS_BASE_MANAGER (self), id));
@@ -1529,6 +1516,26 @@ photos_item_manager_set_constraints_for_mode (PhotosItemManager *self, gboolean 
   g_return_if_fail (mode != PHOTOS_WINDOW_MODE_PREVIEW);
 
   self->constrain_additions[mode] = constrain;
+}
+
+
+void
+photos_item_manager_set_notifier (PhotosItemManager *self, TrackerNotifier *notifier)
+{
+  g_return_if_fail (PHOTOS_IS_ITEM_MANAGER (self));
+  g_return_if_fail (notifier == NULL || TRACKER_IS_NOTIFIER (notifier));
+
+  if (self->notifier != NULL)
+    {
+      g_signal_handlers_disconnect_by_func (self->notifier, photos_item_manager_notifier_events, self);
+      g_clear_object (&self->notifier);
+    }
+
+  if (notifier != NULL)
+    {
+      self->notifier = g_object_ref (notifier);
+      g_signal_connect_swapped (self->notifier, "events", G_CALLBACK (photos_item_manager_notifier_events), self);
+    }
 }
 
 

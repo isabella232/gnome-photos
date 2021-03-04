@@ -30,9 +30,9 @@ if not destdir:
     subprocess.call(['glib-compile-schemas', schemadir])
 
 dbusservicesdir = sys.argv[2]
-trackerdir = os.path.join(datadir, 'tracker', 'miners')
+trackerdir = os.path.join(datadir, 'tracker3', 'miners')
 
-miners = ["org.gnome.Photos.Tracker1.Miner.Extract.service", "org.gnome.Photos.Tracker1.Miner.Files.service"]
+miners = ["org.gnome.Photos.Tracker3.Miner.Extract.service", "org.gnome.Photos.Tracker3.Miner.Files.service"]
 
 os.makedirs(trackerdir, exist_ok=True)
 for miner in miners:
